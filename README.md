@@ -1,4 +1,4 @@
-# Airport Data ETL Pipeline - PostgreSQL Edition
+# Airport Data ETL Pipeline
 
 A comprehensive ETL (Extract, Transform, Load) pipeline for airport and aviation data analytics using PostgreSQL as the target database. This project demonstrates professional-grade data engineering practices with real-world aviation data sources.
 
@@ -61,10 +61,8 @@ touch .env
 ```
 
 ### 3. Database Setup
-```bash
-# Run the PostgreSQL setup script
-python setup_postgresql.py
-```
+Run the PostgreSQL init script:
+``init.sql``
 
 This will:
 - Create the PostgreSQL database and user
@@ -85,19 +83,16 @@ python core_etl.py  # Core data processing
 
 ### Environment Variables (.env)
 ```env
-# PostgreSQL Connection
-DB_USER=your_username
-DB_PASSWORD=your_password
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=airport_etl
+DB_USER=
+DB_PASSWORD=
+DB_HOST=
+DB_PORT=
+DB_NAME=
 
-# API Keys (optional for enhanced data)
-OPENSKY_USERNAME=your_opensky_username
-OPENSKY_PASSWORD=your_opensky_password
-WEATHER_API_KEY=your_weather_api_key
+OPENWEATHER_API_KEY=
+AVIATIONSTACK_API_KEY=
 
-# ETL Settings
+# ETL Configuration
 ETL_BATCH_SIZE=1000
 ETL_LOG_LEVEL=INFO
 ```
@@ -206,93 +201,9 @@ FlightData/
 └── logs/                    # ETL execution logs
 ```
 
-## 🎓 Learning Objectives
-
-This project demonstrates:
-
-### Data Engineering Skills
-- ETL pipeline design and implementation
-- Database schema design and optimization
-- Data quality and validation techniques
-- Error handling and monitoring
-
-### PostgreSQL Expertise
-- Advanced SQL and database design
-- Performance tuning and indexing
-- Dimensional modeling concepts
-- Analytics and reporting queries
-
-### Python Development
-- Object-oriented programming
-- API integration and data processing
-- Configuration management
-- Logging and debugging
-
-### Business Intelligence
-- KPI definition and measurement
-- Airport operations analytics
-- Performance monitoring dashboards
-- Data-driven decision making
-
 ## 🔍 Monitoring & Maintenance
 
 ### ETL Monitoring
 - Check logs in `logs/` directory
 - Monitor `airport_target.data_freshness_score`
 - Track ETL execution times and batch sizes
-
-### Database Maintenance
-```sql
--- Check table sizes
-SELECT 
-    schemaname,
-    tablename,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
-FROM pg_tables 
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
-
--- Monitor index usage
-SELECT 
-    schemaname,
-    tablename,
-    attname,
-    n_distinct,
-    correlation
-FROM pg_stats 
-WHERE schemaname = 'public'
-ORDER BY schemaname, tablename;
-```
-
-## 🤝 Contributing
-
-This project serves as a portfolio demonstration of ETL and data engineering capabilities. For improvements or extensions:
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement changes with tests
-4. Submit a pull request
-
-## 📄 License
-
-This project is for educational and portfolio purposes. Data sources may have their own licensing requirements.
-
-## 🎯 Next Steps
-
-### Enhancements
-- Real-time streaming ETL with Apache Kafka
-- Machine learning models for flight delay prediction
-- Interactive dashboards with Tableau/Power BI
-- REST API for analytics queries
-- Data lake integration with Apache Spark
-
-### Production Deployment
-- Docker containerization
-- Kubernetes orchestration
-- CI/CD pipeline automation
-- Monitoring with Prometheus/Grafana
-- Cloud deployment (AWS RDS, Azure PostgreSQL)
-
----
-
-**Contact**: This project demonstrates professional ETL and data engineering skills suitable for data engineer and analytics engineer positions.
