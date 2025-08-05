@@ -11,17 +11,80 @@ import logging
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from real_apis import RealDataAPIs
 warnings.filterwarnings('ignore')
 
 load_dotenv()
 
 class ExternalDataIntegrator:
+    def fetch_real_aircraft_data(self, icao24: str) -> dict:
+        """Fetch real aircraft data from multiple APIs"""
+        aviationstack_data = self._fetch_aviationstack_aircraft(icao24)
+        if aviationstack_data:
+            return aviationstack_data
+
+        opensky_data = self._fetch_opensky_aircraft(icao24)
+        if opensky_data:
+            return opensky_data
+            
+        return None
+    
+    def _fetch_aviationstack_aircraft(self, icao24: str) -> dict:
+        """Fetch from AviationStack API"""
+        api_key = os.getenv('AVIATIONSTACK_API_KEY')
+        if not api_key:
+            return None
+        url = f'http://api.aviationstack.com/v1/aircrafts?icao24={icao24}&access_key={api_key}'
+        try:
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('data') and len(data['data']) > 0:
+                    ac = data['data'][0]
+                    return {
+                        'icao24': icao24,
+                        'registration': ac.get('registration_number'),
+                        'aircraft_type': ac.get('type_code'),
+                        'manufacturer': ac.get('manufacturer'),
+                        'model': ac.get('model'),
+                        'year_built': ac.get('built'),
+                        'owner': ac.get('owner'),
+                        'operator': ac.get('operator'),
+                        'data_source': 'aviationstack_api',
+                    }
+        except Exception as e:
+            self.logger.debug(f"AviationStack API error for {icao24}: {e}")
+        return None
+    
+    def _fetch_opensky_aircraft(self, icao24: str) -> dict:
+        """Fetch from OpenSky Network aircraft database (free)"""
+        try:
+            url = f'https://opensky-network.org/api/metadata/aircraft/icao/{icao24}'
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    return {
+                        'icao24': icao24,
+                        'registration': data.get('registration'),
+                        'aircraft_type': data.get('typecode'),
+                        'manufacturer': data.get('manufacturername'),
+                        'model': data.get('model'),
+                        'year_built': data.get('built'),
+                        'owner': data.get('owner'),
+                        'operator': data.get('operator'),
+                        'data_source': 'opensky'
+                    }
+        except Exception as e:
+            self.logger.debug(f"OpenSky API error for {icao24}: {e}")
+        return None
     def __init__(self):
         self.logger = self._setup_logging()
         self.weather_cache = {}
         self.aircraft_cache = {}
         self.delay_cache = {}
         self.OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+        self.real_apis = RealDataAPIs()
     
     def _setup_logging(self):
         logs_dir = 'logs'
@@ -256,26 +319,71 @@ class ExternalDataIntegrator:
         else:
             return pd.DataFrame()
 
-    def _generate_aircraft_data(self, icao24: str) -> Dict:
-        aircraft_types = ['Boeing 737', 'Airbus A320', 'Boeing 777', 'Airbus A330', 'Boeing 747', 'Embraer 190']
-        manufacturers = ['Boeing', 'Airbus', 'Embraer', 'Bombardier']
+    def _generate_aircraft_data(self, icao24: str) -> dict:
+        real_data = self.fetch_real_aircraft_data(icao24)
+        if real_data:
+            return real_data
+            
+        enhanced_data = self.real_apis.fetch_enhanced_aircraft_data(icao24)
+        if enhanced_data:
+            return enhanced_data
         
-        aircraft_type = np.random.choice(aircraft_types)
-        manufacturer = aircraft_type.split()[0] if aircraft_type.split()[0] in manufacturers else np.random.choice(manufacturers)
+        country_patterns = {
+            '3': 'United States', '4': 'United States', '7': 'United States',
+            '0': 'United Kingdom', '1': 'United Kingdom', '2': 'United Kingdom',
+            '5': 'Canada', 'C': 'Canada',
+            'A': 'United States', 'B': 'China',
+            'D': 'Germany', 'F': 'France', 'G': 'United Kingdom',
+            'H': 'Hungary', 'I': 'Italy', 'J': 'Japan',
+            'P': 'Netherlands', 'S': 'Sweden'
+        }
         
-        registration_prefixes = ['N', 'D-', 'G-', 'F-', 'JA', 'VH-', 'C-']
-        registration = np.random.choice(registration_prefixes) + ''.join(np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), size=4))
+        first_char = icao24[0].upper() if icao24 else '4'
+        country = country_patterns.get(first_char, 'Unknown')
+        
+        common_aircraft = [
+            {'type': 'Boeing 737-800', 'manufacturer': 'Boeing', 'typical_year': (2000, 2020), 'passengers': (162, 189)},
+            {'type': 'Airbus A320', 'manufacturer': 'Airbus', 'typical_year': (1995, 2022), 'passengers': (140, 180)},
+            {'type': 'Boeing 777-200', 'manufacturer': 'Boeing', 'typical_year': (1995, 2015), 'passengers': (300, 400)},
+            {'type': 'Airbus A330-200', 'manufacturer': 'Airbus', 'typical_year': (1998, 2018), 'passengers': (250, 350)},
+            {'type': 'Boeing 787-8', 'manufacturer': 'Boeing', 'typical_year': (2011, 2023), 'passengers': (210, 250)},
+            {'type': 'Embraer E190', 'manufacturer': 'Embraer', 'typical_year': (2004, 2020), 'passengers': (96, 114)},
+            {'type': 'ATR 72-600', 'manufacturer': 'ATR', 'typical_year': (2010, 2023), 'passengers': (68, 78)},
+            {'type': 'Bombardier CRJ900', 'manufacturer': 'Bombardier', 'typical_year': (2003, 2020), 'passengers': (76, 90)}
+        ]
+        
+        aircraft_info = np.random.choice(common_aircraft)
+        year_range = aircraft_info['typical_year']
+        passenger_range = aircraft_info['passengers']
+        
+        registration_patterns = {
+            'United States': lambda: f"N{np.random.randint(100, 999)}{np.random.choice(['AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AG', 'AH', 'AI', 'AJ'])}",
+            'United Kingdom': lambda: f"G-{np.random.choice(['A', 'B', 'C', 'D', 'E', 'F'])}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}",
+            'Germany': lambda: f"D-{np.random.choice(['A', 'B', 'C'])}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}",
+            'Canada': lambda: f"C-{np.random.choice(['F', 'G'])}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}",
+            'France': lambda: f"F-{np.random.choice(['H', 'G', 'O'])}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'))}",
+        }
+        
+        registration_func = registration_patterns.get(country, lambda: f"{np.random.choice(['N', 'D-', 'G-', 'F-', 'C-'])}{np.random.choice(list('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), size=4)}")
+        registration = registration_func() if callable(registration_func) else registration_func
+        
+        major_operators = [
+            'American Airlines', 'Delta Air Lines', 'United Airlines', 'Southwest Airlines',
+            'Lufthansa', 'British Airways', 'Air France', 'KLM', 'Emirates', 'Qatar Airways',
+            'Singapore Airlines', 'Cathay Pacific', 'Air Canada', 'Turkish Airlines',
+            'Ryanair', 'EasyJet', 'JetBlue Airways', 'Alaska Airlines', 'Spirit Airlines'
+        ]
         
         return {
             'icao24': icao24,
             'registration': registration,
-            'aircraft_type': aircraft_type,
-            'manufacturer': manufacturer,
-            'year_built': np.random.randint(1990, 2024),
-            'owner': f"Airline_{np.random.randint(1, 100)}",
-            'max_passengers': np.random.randint(100, 400),
-            'max_range_km': np.random.randint(3000, 15000),
-            'data_source': 'synthetic_aircraft_registry'
+            'aircraft_type': aircraft_info['type'],
+            'manufacturer': aircraft_info['manufacturer'],
+            'model': aircraft_info['type'].split(' ', 1)[1] if ' ' in aircraft_info['type'] else aircraft_info['type'],
+            'year_built': np.random.randint(year_range[0], year_range[1] + 1),
+            'owner': np.random.choice(major_operators),
+            'operator': np.random.choice(major_operators),
+            'data_source': 'enhanced_synthetic'
         }
 
     def collect_delay_data(self, routes_df: pd.DataFrame) -> pd.DataFrame:

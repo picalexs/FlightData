@@ -56,9 +56,8 @@ cd FlightData
 # Install Python dependencies
 pip install -r requirements.txt
 
-# Set up environment variables
-cp .env.postgresql.template .env
-# Edit .env with your PostgreSQL credentials
+# Create environment file
+touch .env
 ```
 
 ### 3. Database Setup
@@ -198,7 +197,7 @@ FlightData/
 ├── main.py                   # ETL orchestration
 ├── setup_postgresql.py      # Database setup automation
 ├── requirements.txt          # Python dependencies
-├── .env.postgresql.template  # Environment configuration template
+├── .env  # Environment configuration template
 ├── data/
 │   ├── db/
 │   │   └── init.sql         # PostgreSQL schema definition

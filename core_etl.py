@@ -17,6 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 from database_connection import create_database_connection
+from real_apis import RealDataAPIs
 
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.experimental import enable_iterative_imputer
@@ -853,24 +854,53 @@ class FlightDataETL:
             major_airports = airports_df.head(20)
             airport_codes = major_airports['airport_icao'].tolist()
             
-            # Generate sample routes
+            import os, requests
+            api_key = os.getenv('AVIATIONSTACK_API_KEY')
             for i, dep_airport in enumerate(airport_codes[:10]):
                 for arr_airport in airport_codes[i+1:i+4]:
                     if dep_airport != arr_airport:
-                        price_record = {
-                            'callsign': f"{np.random.choice(['AA', 'DL', 'UA', 'BA', 'LH'])}{np.random.randint(100, 999)}",
-                            'route': f"{dep_airport}-{arr_airport}",
-                            'departure_airport': dep_airport,
-                            'arrival_airport': arr_airport,
-                            'best_price': round(np.random.uniform(150, 1200), 2),  # USD
-                            'currency': 'USD',
-                            'duration_minutes': np.random.randint(60, 600),  # 1-10 hours
-                            'fetched_at': datetime.now(),
-                            'date_key': current_date,
-                            'booking_class': np.random.choice(['Economy', 'Business', 'First']),
-                            'advance_days': np.random.randint(1, 90)
-                        }
-                        price_records.append(price_record)
+                        real_price = None
+                        if api_key:
+                            try:
+                                url = f'http://api.aviationstack.com/v1/flights?dep_iata={dep_airport}&arr_iata={arr_airport}&access_key={api_key}'
+                                resp = requests.get(url, timeout=10)
+                                if resp.status_code == 200:
+                                    data = resp.json()
+                                    if data.get('data') and len(data['data']) > 0:
+                                        flight = data['data'][0]
+                                        real_price = {
+                                            'callsign': flight.get('flight', {}).get('iataNumber'),
+                                            'route': f"{dep_airport}-{arr_airport}",
+                                            'departure_airport': dep_airport,
+                                            'arrival_airport': arr_airport,
+                                            'best_price': None,
+                                            'currency': 'USD',
+                                            'duration_minutes': flight.get('flight_time', None),
+                                            'fetched_at': datetime.now(),
+                                            'date_key': current_date,
+                                            'booking_class': 'Economy',
+                                            'advance_days': 7
+                                        }
+                            except Exception as e:
+                                self.logger.warning(f"Ticket price API error for {dep_airport}-{arr_airport}: {e}")
+                                real_price = None
+                        if real_price:
+                            price_records.append(real_price)
+                        else:
+                            price_record = {
+                                'callsign': f"{np.random.choice(['AA', 'DL', 'UA', 'BA', 'LH'])}{np.random.randint(100, 999)}",
+                                'route': f"{dep_airport}-{arr_airport}",
+                                'departure_airport': dep_airport,
+                                'arrival_airport': arr_airport,
+                                'best_price': round(np.random.uniform(150, 1200), 2),  # USD
+                                'currency': 'USD',
+                                'duration_minutes': np.random.randint(60, 600),  # 1-10 hours
+                                'fetched_at': datetime.now(),
+                                'date_key': current_date,
+                                'booking_class': np.random.choice(['Economy', 'Business', 'First']),
+                                'advance_days': np.random.randint(1, 90)
+                            }
+                            price_records.append(price_record)
             
             if price_records:
                 postgresql_datasets['ticket_price_fact'] = pd.DataFrame(price_records)
@@ -1014,7 +1044,6 @@ class FlightDataETL:
         total_steps = 4 if include_live else 3
         current_step = 0
         
-        # Step 1: Load static data
         current_step += 1
         self.logger.info(f"[{current_step}/{total_steps}] Loading static flight data...")
         static_start = time.time()
@@ -1022,7 +1051,6 @@ class FlightDataETL:
         static_duration = time.time() - static_start
         self.logger.info(f"[OK] Static data loaded in {static_duration:.1f}s")
         
-        # Step 2: Fetch live data (if requested)
         if include_live:
             current_step += 1
             self.logger.info(f"[{current_step}/{total_steps}] Fetching live flight data...")
@@ -1033,7 +1061,6 @@ class FlightDataETL:
             live_duration = time.time() - live_start
             self.logger.info(f"[OK] Live data fetched in {live_duration:.1f}s")
         
-        # Step 3: Clean and standardize
         current_step += 1
         self.logger.info(f"[{current_step}/{total_steps}] Cleaning and standardizing data...")
         clean_start = time.time()
@@ -1041,7 +1068,6 @@ class FlightDataETL:
         clean_duration = time.time() - clean_start
         self.logger.info(f"[OK] Data cleaned in {clean_duration:.1f}s")
         
-        # Step 4: Save to database (ONLY DATABASE - NO CSV EXPORTS)
         current_step += 1
         self.logger.info(f"[{current_step}/{total_steps}] Saving all data to database...")
         db_start = time.time()
@@ -1051,7 +1077,6 @@ class FlightDataETL:
         
         total_duration = time.time() - start_time
         
-        # Generate report (no CSV files)
         report = {
             'pipeline_duration': total_duration,
             'datasets_processed': list(self.datasets.keys()),
@@ -1059,7 +1084,7 @@ class FlightDataETL:
             'database_path': db_path,
             'timestamp': datetime.now().isoformat(),
             'include_live_data': include_live,
-            'csv_exports': False  # No CSV exports in this simplified pipeline
+            'csv_exports': False
         }
         
         # Save report
