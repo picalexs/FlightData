@@ -8,6 +8,12 @@ from urllib.parse import quote_plus
 load_dotenv()
 
 try:
+    import psycopg2
+    POSTGRESQL_AVAILABLE = True
+except ImportError:
+    POSTGRESQL_AVAILABLE = False
+
+try:
     import oracledb
     ORACLEDB_AVAILABLE = True
 except ImportError:
@@ -19,6 +25,72 @@ class DatabaseConnection:
         self.logger = logger or logging.getLogger(__name__)
         self.engine = None
         self.connection_type = None
+        
+    def get_postgresql_engine(self, data_dir: str = "data"):
+        """Get PostgreSQL database engine with proper error handling"""
+        try:
+            db_user = os.getenv('DB_USER')
+            db_password = os.getenv('DB_PASSWORD') 
+            db_host = os.getenv('DB_HOST', 'localhost')
+            db_port = os.getenv('DB_PORT', '5432')
+            db_name = os.getenv('DB_NAME', 'airport_etl')
+            
+            if db_user:
+                db_user = db_user.strip('"\'')
+            if db_password:
+                db_password = db_password.strip('"\'')
+            if db_host:
+                db_host = db_host.strip('"\'')
+            if db_name:
+                db_name = db_name.strip('"\'')
+            
+            if not all([db_user, db_password, db_host, db_name]):
+                raise Exception("Missing PostgreSQL connection details in .env file")
+            
+            self.logger.info("Using PostgreSQL database from .env configuration")
+            
+            if not POSTGRESQL_AVAILABLE:
+                raise Exception("psycopg2 library not available - install with: pip install psycopg2-binary")
+            
+            self.logger.info(f"Connecting to PostgreSQL at {db_host}:{db_port}/{db_name} as {db_user}")
+            
+            # Test direct connection first
+            import psycopg2
+            test_conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                database=db_name,
+                user=db_user,
+                password=db_password
+            )
+            
+            cursor = test_conn.cursor()
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            cursor.close()
+            test_conn.close()
+            
+            self.logger.info("[OK] Direct PostgreSQL connection successful")
+            
+            # Create SQLAlchemy engine
+            encoded_password = quote_plus(db_password)
+            connection_url = f"postgresql+psycopg2://{db_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
+            engine = create_engine(connection_url, echo=False)
+            
+            # Test SQLAlchemy engine
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            
+            self.logger.info(f"[OK] PostgreSQL SQLAlchemy engine created successfully")
+            self.logger.info(f"[OK] Connected to: {db_host}:{db_port}/{db_name}")
+            
+            self.engine = engine
+            self.connection_type = "postgresql"
+            return engine
+            
+        except Exception as e:
+            self.logger.error(f"PostgreSQL connection failed: {e}")
+            return None
         
     def get_oracle_engine(self, data_dir: str = "data"):
         try:
@@ -78,20 +150,28 @@ class DatabaseConnection:
             self.logger.error(f"SQLite fallback failed: {e}")
             return None
     
-    def get_database_engine(self, data_dir: str = "data", prefer_oracle: bool = True):
+    def get_database_engine(self, data_dir: str = "data", prefer_postgresql: bool = True):
+        """Get database engine - PostgreSQL first, then Oracle, SQLite fallback"""
         
-        if prefer_oracle:
-            oracle_engine = self.get_oracle_engine(data_dir)
-            if oracle_engine:
-                return oracle_engine
+        if prefer_postgresql:
+            postgresql_engine = self.get_postgresql_engine(data_dir)
+            if postgresql_engine:
+                return postgresql_engine
+        
+        # Try Oracle as fallback
+        oracle_engine = self.get_oracle_engine(data_dir)
+        if oracle_engine:
+            return oracle_engine
                 
         self.logger.warning("Falling back to SQLite database")
         return self.get_sqlite_fallback(data_dir)
     
     def get_connection_info(self) -> Dict[str, Any]:
+        """Get current connection information"""
         return {
             'type': self.connection_type,
             'engine': self.engine,
+            'is_postgresql': self.connection_type == 'postgresql',
             'is_oracle': self.connection_type == 'oracle',
             'is_sqlite': self.connection_type == 'sqlite'
         }

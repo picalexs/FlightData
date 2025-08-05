@@ -64,9 +64,7 @@ logs/
 *.env
 *.env.*
 
-# Data files
-data/
-!data/README.md
+*.venv
 
 # OS files
 .DS_Store
